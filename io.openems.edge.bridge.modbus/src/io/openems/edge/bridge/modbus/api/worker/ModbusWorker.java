@@ -163,4 +163,11 @@ public class ModbusWorker extends AbstractImmediateWorker {
 	public void onBeforeProcessImage() {
 		this.cycleTasksManager.onBeforeProcessImage();
 	}
+	
+	/**
+	 * Called on AFTER_PROCESS_IMAGE event.
+	 */
+	public void onAfterProcessImage() {
+		this.cycleTasksManager.onAfterProcessImage();
+	}	
 }

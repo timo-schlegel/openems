@@ -10,6 +10,7 @@ import io.openems.edge.bridge.modbus.api.Config.LogHandler;
 import io.openems.edge.bridge.modbus.api.task.Task;
 import io.openems.edge.bridge.modbus.api.task.WaitTask;
 import io.openems.edge.bridge.modbus.api.worker.ModbusWorker;
+import io.openems.edge.common.taskmanager.Priority;
 
 /**
  * Manages the Read-, Write- and Wait-Tasks for one Cycle.
@@ -110,6 +111,16 @@ public class CycleTasksManager {
 	}
 
 	/**
+	 * Called on AFTER_PROCESS_IMAGE event.
+	 */
+	public synchronized void onAfterProcessImage() {
+		this.traceLog(() -> "State: " + this.state + " -> " + StateMachine.READ_BEFORE_WRITE + " (onAfterProcessImage)");
+
+		this.state = StateMachine.READ_BEFORE_WRITE;
+		this.waitMutexTask.release();
+	}
+	
+	/**
 	 * Called on EXECUTE_WRITE event.
 	 */
 	public synchronized void onExecuteWrite() {
@@ -117,7 +128,7 @@ public class CycleTasksManager {
 
 		this.state = StateMachine.WRITE;
 		this.waitMutexTask.release();
-	}
+	}	
 
 	/**
 	 * Gets the next {@link Task}. This is called in a separate Thread by
@@ -136,13 +147,13 @@ public class CycleTasksManager {
 		var nextTask = switch (this.state) {
 
 		case INITIAL_WAIT ->
-			// Waiting for planned waiting time to pass
-			this.waitDelayHandler.getWaitDelayTask();
+			// Waiting for AFTER_PROCESS_IMAGE event
+			this.waitMutexTask;
 
 		case READ_BEFORE_WRITE -> {
-			// Read-Task available?
-			var task = this.cycleTasks.reads().poll();
-			if (task != null) {
+			// Low Priority Read-Task available?
+			if(this.cycleTasks.reads().size()>0 && this.cycleTasks.reads().getFirst().getPriority()==Priority.LOW) {		
+				var task = this.cycleTasks.reads().poll();
 				yield task;
 			}
 			// Otherwise -> next state + recursive call

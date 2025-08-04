@@ -132,6 +132,9 @@ public abstract class AbstractModbusBridge extends AbstractOpenemsComponent
 		case EdgeEventConstants.TOPIC_CYCLE_BEFORE_PROCESS_IMAGE //
 			-> this.worker.onBeforeProcessImage();
 
+		case EdgeEventConstants.TOPIC_CYCLE_AFTER_PROCESS_IMAGE //
+			-> this.worker.onAfterProcessImage();
+			
 		case EdgeEventConstants.TOPIC_CYCLE_EXECUTE_WRITE //
 			-> this.worker.onExecuteWrite();
 		}

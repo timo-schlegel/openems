@@ -39,6 +39,7 @@ import io.openems.edge.common.startstop.StartStoppable;
 )
 @EventTopics({ //
 		EdgeEventConstants.TOPIC_CYCLE_BEFORE_PROCESS_IMAGE, //
+		EdgeEventConstants.TOPIC_CYCLE_AFTER_PROCESS_IMAGE, //
 		EdgeEventConstants.TOPIC_CYCLE_EXECUTE_WRITE //
 })
 public class BridgeModbusTcpImpl extends AbstractModbusBridge
