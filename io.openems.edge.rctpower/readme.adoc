@@ -1,0 +1,11 @@
+= RctPower Hybrid Inverters
+
+ESS::
+- HybridEss
+- SymmetricEss
+- ManagedSymmetricEss
+
+Charger::
+- EssDcCharger
+
+https://github.com/OpenEMS/openems/tree/develop/io.openems.edge.bridge.rtcpower[Source Code icon:github[]]
