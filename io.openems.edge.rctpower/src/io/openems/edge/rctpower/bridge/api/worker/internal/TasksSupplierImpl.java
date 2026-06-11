@@ -44,6 +44,16 @@ public class TasksSupplierImpl implements TasksSupplier {
 	 */
 	private final Queue<Tuple<String, ReadTask>> nextLowPriorityTasks = new LinkedList<>();
 
+	private static final int LOW_PRIORITY_RETRY_CYCLES = 2;
+
+	/**
+	 * A single LOW priority {@link ReadTask} scheduled for preferred retry
+	 * in the next {@value #LOW_PRIORITY_RETRY_CYCLES} cycles after a soft-fail
+	 * (skipped execution).
+	 */
+	private ReadTask retryLowPriorityTask = null;
+	private int retryLowPriorityTaskRemainingCycles = 0;
+	
 	/**
 	 * Adds (or replaces) the protocol identified by its sourceId.
 	 * 
@@ -85,14 +95,56 @@ public class TasksSupplierImpl implements TasksSupplier {
 		taskManager.getTasks() //
 				.forEach(t -> invalidate.accept(t.getElements()));
 		this.nextLowPriorityTasks.removeIf(t -> t.a() == sourceId);
+
+		if (this.retryLowPriorityTask != null) {
+			boolean belongsToRemovedProtocol = taskManager.getTasks(Priority.LOW).stream() //
+					.filter(ReadTask.class::isInstance).map(ReadTask.class::cast) //
+					.anyMatch(task -> task == this.retryLowPriorityTask);
+
+			if (belongsToRemovedProtocol) {
+				this.retryLowPriorityTask = null;
+				this.retryLowPriorityTaskRemainingCycles = 0;
+			}
+		}
 	}
 
 	@Override
 	public synchronized CycleTasks getCycleTasks(DefectiveComponents defectiveComponents) {
 		Map<String, LinkedList<Task>> tasks = new HashMap<>();
-		// One Low Priority ReadTask
+		// One Low Priority ReadTask; retry skipped LOW task from previous cycle first
 		{
-			var t = this.getOneLowPriorityReadTask();
+			Tuple<String, ReadTask> t = null;
+
+			if (this.retryLowPriorityTask != null && this.retryLowPriorityTaskRemainingCycles > 0) {
+			    var retryTask = this.retryLowPriorityTask;
+
+			    for (var entry : this.taskManagers.entrySet()) {
+			        var id = entry.getKey();
+			        var taskManager = entry.getValue();
+
+			        boolean exists = taskManager.getTasks(Priority.LOW).stream()
+			                .filter(ReadTask.class::isInstance)
+			                .map(ReadTask.class::cast)
+			                .anyMatch(task -> task == retryTask);
+
+			        if (exists) {
+			            t = new Tuple<>(id, retryTask);
+			            break;
+			        }
+			    }
+
+			    this.retryLowPriorityTaskRemainingCycles--;
+
+			    if (this.retryLowPriorityTaskRemainingCycles <= 0 || t == null) {
+			        this.retryLowPriorityTask = null;
+			        this.retryLowPriorityTaskRemainingCycles = 0;
+			    }
+			}
+
+			if (t == null) {
+				t = this.getOneLowPriorityReadTask();
+			}
+
 			if (t != null) {
 				tasks.computeIfAbsent(t.a(), (ignore) -> new LinkedList<>()) //
 						.add(t.b());
@@ -162,6 +214,31 @@ public class TasksSupplierImpl implements TasksSupplier {
 			});
 			refilledBefore = true;
 		}
+	}
+
+	/**
+	 * Schedules the given LOW priority {@link ReadTask} for preferred retry
+	 * in the next {@value #LOW_PRIORITY_RETRY_CYCLES} cycles.
+	 *
+	 * <p>
+	 * If the task is no longer available when the next cycle is created, it is
+	 * ignored and normal LOW-priority rotation continues.
+	 *
+	 * @param task the LOW priority {@link ReadTask} to retry
+	 */
+	public synchronized void retryLowPriorityReadTaskNextCycle(ReadTask task) {
+	    if (task == null) {
+	        return;
+	    }
+
+	    if (this.retryLowPriorityTask == task) {
+	        this.retryLowPriorityTaskRemainingCycles = Math.max(
+	                this.retryLowPriorityTaskRemainingCycles,
+	                LOW_PRIORITY_RETRY_CYCLES);
+	    } else {
+	        this.retryLowPriorityTask = task;
+	        this.retryLowPriorityTaskRemainingCycles = LOW_PRIORITY_RETRY_CYCLES;
+	    }
 	}
 
 	@Override

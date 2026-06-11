@@ -7,6 +7,7 @@ import java.net.Socket;
 public class RctTCPConnection {
 
 	private Socket rctSocket;
+
 	private int rctTimeout = AbstractRctPowerBridge.DEFAULT_TIMEOUT;	//ms
 	private boolean rctConnected;
 	
@@ -16,14 +17,14 @@ public class RctTCPConnection {
 	private RctTCPTransport rctTCPTransport;
 	
 	public RctTCPConnection(InetAddress adr) {
-		rctAddress = adr;
+		this.rctAddress = adr;
 	}	
 	
 	private void prepareTransport() throws IOException {
 		if (rctTCPTransport == null) {
-			rctTCPTransport = new RctTCPTransport(rctSocket);
+			rctTCPTransport = new RctTCPTransport(this.rctSocket);
 		} else {
-			rctTCPTransport.setSocket(rctSocket);
+			rctTCPTransport.setSocket(this.rctSocket);
 		}
 	}// prepareIO	
 	
@@ -33,7 +34,7 @@ public class RctTCPConnection {
 	 * @throws Exception
 	 *             if there is a network failure.
 	 */
-	public synchronized void connect() throws Exception {
+	public synchronized void ensureConnected() throws Exception {
 		if (! isConnected()) {
 			//if (Modbus.debug)
 			//	System.out.println("connect()");
@@ -58,11 +59,31 @@ public class RctTCPConnection {
 	public synchronized boolean isConnected() {
 		return rctConnected;
 	}// isConnected
-	
+
+	public void writeMessage(RctFrame request) throws IOException {
+		try {
+			ensureConnected();
+		} catch (IOException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new IOException("Failed to ensure RCT connection", e);
+		}
+
+		synchronized (this.rctTCPTransport) {
+			try {
+				this.rctTCPTransport.writeMessage(request);
+			} catch (IOException e) {
+				throw e;
+			} catch (Exception e) {
+				throw new IOException("Failed to write RCT request", e);
+			}
+		}
+	}
+
 	/**
 	 * Closes this <tt>TCPMasterConnection</tt>.
 	 */
-	public void close() {
+	public synchronized void close() {
 		if (rctConnected) {
 			try {
 				rctTCPTransport.close();

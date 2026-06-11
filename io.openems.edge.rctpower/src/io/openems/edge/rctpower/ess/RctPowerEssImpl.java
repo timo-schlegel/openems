@@ -22,6 +22,8 @@ import org.osgi.service.event.Event;
 import org.osgi.service.event.EventHandler;
 import org.osgi.service.event.propertytypes.EventTopics;
 import org.osgi.service.metatype.annotations.Designate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.openems.common.exceptions.OpenemsError.OpenemsNamedException;
 import io.openems.common.exceptions.OpenemsException;
@@ -46,6 +48,7 @@ import io.openems.edge.rctpower.bridge.api.RctProtocol;
 import io.openems.edge.rctpower.bridge.api.element.FloatElement;
 import io.openems.edge.rctpower.bridge.api.element.SignedDoublewordElement;
 import io.openems.edge.rctpower.bridge.api.element.UnsignedByteElement;
+import io.openems.edge.rctpower.bridge.api.task.ReadObject;
 import io.openems.edge.rctpower.bridge.api.task.ReadObjectTask;
 import io.openems.edge.rctpower.bridge.api.task.WriteObjectTask;
 import io.openems.edge.rctpower.charger.RctPowerCharger;
@@ -71,6 +74,8 @@ public class RctPowerEssImpl extends AbstractOpenemsRctComponent implements RctP
 	private final SetPvExportLimitHandler setPvExportLimitHandler = new SetPvExportLimitHandler(this);
 	
 	protected final Set<RctPowerCharger> chargers = new HashSet<>();
+
+	private final Logger log = LoggerFactory.getLogger(RctPowerEss.class);
 	
 	private Config config = null;
 	
@@ -136,12 +141,24 @@ public class RctPowerEssImpl extends AbstractOpenemsRctComponent implements RctP
 
 	@Override
 	protected final RctProtocol defineRctProtocol() {
-		var rctProtocol = new RctProtocol(this, //			
+		var rctProtocol = new RctProtocol(this, //
+				//new ReadObjectTask(0x4E49AEC5, Priority.LOW, m(SymmetricEss.ChannelId.ACTIVE_POWER, new FloatElement(0x4E49AEC5), this.ignoreMinPower)),
+				//new ReadObjectTask(0x9A67600D, Priority.LOW, m(SymmetricEss.ChannelId.MAX_APPARENT_POWER, new FloatElement(0x9A67600D)))
+
 				new ReadObjectTask(0x4E49AEC5, Priority.HIGH, m(SymmetricEss.ChannelId.ACTIVE_POWER, new FloatElement(0x4E49AEC5), this.ignoreMinPower)),
-				new ReadObjectTask(0x7C78CBAC, Priority.HIGH, m(SymmetricEss.ChannelId.REACTIVE_POWER, new FloatElement(0x7C78CBAC))),
-				new ReadObjectTask(0x9A67600D, Priority.LOW, m(SymmetricEss.ChannelId.MAX_APPARENT_POWER, new FloatElement(0x9A67600D))),
+				//new ReadObjectTask(0x7C78CBAC, Priority.HIGH, m(SymmetricEss.ChannelId.REACTIVE_POWER, new FloatElement(0x7C78CBAC))),
 				new ReadObjectTask(0x1156DFD0, Priority.HIGH, m(HybridEss.ChannelId.DC_DISCHARGE_POWER, new FloatElement(0x1156DFD0))),
-				new ReadObjectTask(0x5F33284E, Priority.HIGH, m(RctPowerEss.ChannelId.INVERTER_STATUS, new UnsignedByteElement(0x5F33284E))),
+				new ReadObjectTask(0x5F33284E, Priority.LOW, m(RctPowerEss.ChannelId.INVERTER_STATUS, new UnsignedByteElement(0x5F33284E))),
+
+				//new BatchReadObjectTask(Priority.HIGH,
+						//new ReadObject(0x4E49AEC5, m(SymmetricEss.ChannelId.ACTIVE_POWER, new FloatElement(0x4E49AEC5), this.ignoreMinPower)),
+						//new ReadObject(0x7C78CBAC, m(SymmetricEss.ChannelId.REACTIVE_POWER, new FloatElement(0x7C78CBAC)))
+						//new ReadObject(0x1156DFD0, m(HybridEss.ChannelId.DC_DISCHARGE_POWER, new FloatElement(0x1156DFD0))),
+						//new ReadObject(0x5F33284E, m(RctPowerEss.ChannelId.INVERTER_STATUS, new UnsignedByteElement(0x5F33284E))),
+						//new ReadObject(0xBD008E29, m(RctPowerEss.ChannelId.BMS_BATTERY_POWER_EXTERN, new FloatElement(0xBD008E29)))
+				//)
+
+				new ReadObjectTask(0x9A67600D, Priority.LOW, m(SymmetricEss.ChannelId.MAX_APPARENT_POWER, new FloatElement(0x9A67600D))),
 				
 				new ReadObjectTask(0x381B8BF9, Priority.LOW, m(RctPowerEss.ChannelId.SOH, new FloatElement(0x381B8BF9), FLOAT_CONVERTER)),
 				new ReadObjectTask(0x959930BF, Priority.LOW, m(SymmetricEss.ChannelId.SOC, new FloatElement(0x959930BF), FLOAT_CONVERTER)),
@@ -180,7 +197,7 @@ public class RctPowerEssImpl extends AbstractOpenemsRctComponent implements RctP
 
 		switch (event.getTopic()) {
 		case EdgeEventConstants.TOPIC_CYCLE_BEFORE_PROCESS_IMAGE -> {
-			//this.logInfo(log, "before process image");
+			//this.logInfo(log, "***************** before process image");
 			this.allowedChargeDischargeHandler.accept(this.componentManager);
 			this.updateEnergyChannels();
 		}
@@ -250,7 +267,7 @@ public class RctPowerEssImpl extends AbstractOpenemsRctComponent implements RctP
 	public void applyPower(int activePower, int reactivePower) throws OpenemsNamedException {
 		// Apply Power Set-Point
 		this.applyPowerHandler.apply(this, activePower, this.config.controlMode(), this.sum.getGridActivePower(),
-				this.getActivePower(), this.power.isFilterEnabled());
+				this.getActivePower(), this.power.isFilterEnabled(), this.cycle.getCycleTime());
 	}	
 
 	@Override

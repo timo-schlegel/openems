@@ -1,5 +1,7 @@
 package io.openems.edge.rctpower.bridge.api;
 
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import org.osgi.service.component.ComponentContext;
@@ -9,6 +11,7 @@ import org.osgi.service.event.EventHandler;
 import io.openems.common.exceptions.OpenemsException;
 import io.openems.edge.common.component.AbstractOpenemsComponent;
 import io.openems.edge.common.event.EdgeEventConstants;
+import io.openems.edge.rctpower.bridge.api.worker.RctReadWorker;
 import io.openems.edge.rctpower.bridge.api.worker.RctWorker;
 
 /**
@@ -19,7 +22,7 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 	/**
 	 * Default timeout in [ms].
 	 */
-	public static final int DEFAULT_TIMEOUT = 1000;
+	public static final int DEFAULT_TIMEOUT = 400;
 
 	/**
 	 * Default retries.
@@ -36,6 +39,7 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 	private Config config = null;
 
 	protected final RctWorker worker = new RctWorker(
+			this,
 			// Execute Task
 			task -> task.execute(this),
 			// Invalidate RctElements
@@ -47,6 +51,8 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 			// LogHandler
 			() -> this.config.log //
 	);
+	
+	protected RctReadWorker readWorker;
 
 	protected AbstractRctPowerBridge(io.openems.edge.common.channel.ChannelId[] firstInitialChannelIds,
 			io.openems.edge.common.channel.ChannelId[]... furtherInitialChannelIds) {
@@ -64,6 +70,9 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 		this.applyConfig(config);
 		if (config.enabled) {
 			this.worker.activate(config.id);
+			if (this.readWorker != null) {
+				this.readWorker.activate(config.id + ".read");
+			}
 		}
 	}
 
@@ -71,6 +80,9 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 	protected void deactivate() {
 		super.deactivate();
 		this.worker.deactivate();
+		if (this.readWorker != null) {
+			this.readWorker.deactivate();
+		}
 		this.closeRctConnection();
 	}
 
@@ -85,8 +97,14 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 		this.applyConfig(config);
 		if (config.enabled) {
 			this.worker.modified(config.id);
+			if (this.readWorker != null) {
+				this.readWorker.modified(config.id + ".read");
+			}
 		} else {
 			this.worker.deactivate();
+			if (this.readWorker != null) {
+				this.readWorker.deactivate();
+			}
 		}
 	}
 
@@ -123,8 +141,12 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 			return;
 		}
 		switch (event.getTopic()) {
-		case EdgeEventConstants.TOPIC_CYCLE_BEFORE_PROCESS_IMAGE //
-			-> this.worker.onBeforeProcessImage();
+		case EdgeEventConstants.TOPIC_CYCLE_BEFORE_PROCESS_IMAGE -> {
+			this.worker.onBeforeProcessImage();
+			if (this.readWorker != null) {
+				this.readWorker.onBeforeProcessImage();
+			}
+		}
 
 		case EdgeEventConstants.TOPIC_CYCLE_EXECUTE_WRITE //
 			-> this.worker.onExecuteWrite();
@@ -153,6 +175,15 @@ public abstract class AbstractRctPowerBridge extends AbstractOpenemsComponent im
 	 * @throws OpenemsException on error
 	 */
 	public abstract RctTransaction getNewRctTransaction(RctFrame frame) throws OpenemsException;
+	
+	/**
+	 * Creates a new Rct BatchTransaction on an open Rct connection.
+	 *
+	 * @param RctFrames for request
+	 * @return the Rct Transaction
+	 * @throws OpenemsException on error
+	 */
+	public abstract RctBatchTransaction getNewRctBatchTransaction(List<RctRequest> rctRequests) throws OpenemsException;
 
 	/**
 	 * Closes the Rct connection.

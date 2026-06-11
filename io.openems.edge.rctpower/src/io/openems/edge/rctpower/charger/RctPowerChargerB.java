@@ -94,6 +94,7 @@ public class RctPowerChargerB extends AbstractOpenemsRctComponent
 	protected RctProtocol defineRctProtocol() {
 		var rctProtocol = new RctProtocol(this, //
 				new ReadObjectTask(0xCB5D21B, Priority.HIGH, m(EssDcCharger.ChannelId.ACTUAL_POWER, new FloatElement(0xCB5D21B), this.ignoreMinPower)), // dc_conv.dc_conv_struct[1].p_dc_lp
+				//new ReadObjectTask(0xAA9AA253, Priority.HIGH, m(EssDcCharger.ChannelId.ACTUAL_POWER, new FloatElement(0xAA9AA253), this.ignoreMinPower)), // dc_conv.dc_conv_struct[1].p_dc
 				new ReadObjectTask(0x68EEFD3D, Priority.LOW, m(EssDcCharger.ChannelId.ACTUAL_ENERGY, new FloatElement(0x68EEFD3D))) // energy.e_dc_total[1]
 				);
 		

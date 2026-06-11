@@ -1,6 +1,7 @@
 package io.openems.edge.rctpower.bridge.api;
 
 import java.net.InetAddress;
+import java.util.List;
 
 import org.osgi.annotation.versioning.ProviderType;
 
@@ -45,6 +46,7 @@ public interface BridgeRctPower extends OpenemsComponent {
 	}
 
 	public RctTransaction getNewRctTransaction(RctFrame frame) throws OpenemsException;
+	public RctBatchTransaction getNewRctBatchTransaction(List<RctRequest> rctRequests) throws OpenemsException;
 	public void closeRctConnection();
 	
 	/**

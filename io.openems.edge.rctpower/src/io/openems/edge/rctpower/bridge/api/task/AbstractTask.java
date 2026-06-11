@@ -17,6 +17,7 @@ import io.openems.common.function.ThrowingSupplier;
 import io.openems.edge.rctpower.bridge.api.AbstractOpenemsRctComponent;
 import io.openems.edge.rctpower.bridge.api.AbstractRctPowerBridge;
 import io.openems.edge.rctpower.bridge.api.LogVerbosity;
+import io.openems.edge.rctpower.bridge.api.RctReadSkippedException;
 import io.openems.edge.rctpower.bridge.api.RctRequest;
 import io.openems.edge.rctpower.bridge.api.RctResponse;
 import io.openems.edge.rctpower.bridge.api.element.RctElement;
@@ -119,13 +120,19 @@ public abstract non-sealed class AbstractTask<//
 		try {
 			// First try
 			return this.logRequest(TryExecute.FIRST_TRY, bridge, logVerbosity, request,
-					() -> sendRequest(bridge, slaveId, this.responseClazz, request));
+					() -> this.sendRequest(bridge, slaveId, this.responseClazz, request));
+
+	    } catch (RctReadSkippedException e) {
+	        // Soft-fail / timeout-like:
+	        // no retry, because we do not want to extend the read cycle
+	        throw e;
 
 		} catch (Exception e) {
+			// Hard-fail:
 			// Second try; with new connection
 			bridge.closeRctConnection();
 			return this.logRequest(TryExecute.SECOND_TRY, bridge, logVerbosity, request,
-					() -> sendRequest(bridge, slaveId, this.responseClazz, request));
+					() -> this.sendRequest(bridge, slaveId, this.responseClazz, request));
 		}
 	}
 
@@ -157,6 +164,9 @@ public abstract non-sealed class AbstractTask<//
 				// On second try: always log error
 				try {
 					yield supplier.get();
+				} catch (RctReadSkippedException e) {
+					this.logError(e, "Execute skipped", this.toLogMessage(logVerbosity, request, e));
+					throw e;
 				} catch (Exception e) {
 					this.logError(e, "Execute failed", this.toLogMessage(logVerbosity, request, e));
 					throw e;
@@ -171,6 +181,9 @@ public abstract non-sealed class AbstractTask<//
 				this.logInfo("  Execute", this.toLogMessage(logVerbosity, request, response));
 				yield response;
 
+			} catch (RctReadSkippedException e) {
+				this.logError(e, "  Execute skipped", this.toLogMessage(logVerbosity, request, e));
+				throw e;			
 			} catch (Exception e) {
 				this.logError(e, "  Execute failed", this.toLogMessage(logVerbosity, request, e));
 				throw e;
@@ -186,6 +199,11 @@ public abstract non-sealed class AbstractTask<//
 						"Elapsed [" + stopwatch.elapsed(TimeUnit.MILLISECONDS) + "ms]");
 				yield response;
 
+			} catch (RctReadSkippedException e) {
+				stopwatch.stop();
+				this.logError(e, "  Execute skipped", this.toLogMessage(logVerbosity, request, e),
+						"Elapsed [" + stopwatch.elapsed(TimeUnit.MILLISECONDS) + "ms]");
+				throw e;
 			} catch (Exception e) {
 				stopwatch.stop();
 				this.logError(e, "  Execute failed", this.toLogMessage(logVerbosity, request, e),
@@ -359,7 +377,7 @@ public abstract non-sealed class AbstractTask<//
 	 * @return the {@link RctResponse}
 	 * @throws Exception on error
 	 */
-	private static <RESPONSE extends RctResponse> RESPONSE sendRequest(AbstractRctPowerBridge bridge, int slaveId,
+	private RESPONSE sendRequest(AbstractRctPowerBridge bridge, int slaveId,
 			Class<RESPONSE> clazz, RctRequest request) throws Exception {
 		/*
 		 * !!!! change setUnitID() to setSlaveID() !!! 
@@ -367,7 +385,14 @@ public abstract non-sealed class AbstractTask<//
 		 */
 		//request.setSlaveID(slaveId);
 		var transaction = bridge.getNewRctTransaction(request);
-		
+				
+	    if (this instanceof ReadTask readTask) {
+	        Integer attemptTimeoutMs = readTask.getAttemptTimeoutMs();
+	        if (attemptTimeoutMs != null) {
+	            transaction.setAttemptTimeoutMs(attemptTimeoutMs);
+	        }
+	    }
+
 		if(request.getCommand() == 0x02)
 		{
 			transaction.executeWriteOnly();
@@ -375,6 +400,7 @@ public abstract non-sealed class AbstractTask<//
 			return null;
 		}
 			
+		//Thread.sleep(20); // !!! TEMP
 		transaction.execute();	
 		var response = transaction.getResponse();
 		if (clazz.isInstance(response)) {

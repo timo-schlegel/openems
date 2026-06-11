@@ -12,11 +12,12 @@ import io.openems.edge.rctpower.bridge.api.task.WaitTask;
 
 public class WaitDelayHandler {
 
-	private static final int BUFFER_MS = 20;
+	protected static final int BUFFER_MS = 60;
 
 	private final Runnable onWaitDelayTaskFinished;
 	private final Consumer<Long> cycleDelayChannel;
 	private final Stopwatch stopwatch;
+	private boolean skipLearningForCurrentCycle = false;
 
 	/**
 	 * Delays that would have been possible. Updated via
@@ -117,14 +118,19 @@ public class WaitDelayHandler {
 				possibleDelay = halfOfLastDelay;
 			}
 
-			this.possibleDelays.add(possibleDelay);
+	        if (!this.skipLearningForCurrentCycle) {
+	            this.possibleDelays.add(possibleDelay);
+	        } else if (traceLog) {
+	            log += " (skip learning)";
+	        }
 		}
 
 		// Initialize a new WaitDelayTask.
 		this.setWaitDelayTask(generateWaitDelayTask(this.possibleDelays, this.onWaitDelayTaskFinished));
 
-		// Reset 'timeIsInvalid'
+		// Reset 'timeIsInvalid' and 'skipLearningForCurrentCycle'
 		this.timeIsInvalid = false;
+		this.skipLearningForCurrentCycle = false;
 
 		return log;
 	}
@@ -144,6 +150,25 @@ public class WaitDelayHandler {
 	public synchronized void timeIsInvalid() {
 		this.setWaitDelayTask(generateZeroWaitDelayTask(this.onWaitDelayTaskFinished));
 		this.timeIsInvalid = true;
+	}
+
+	/**
+	 * Announce, that the current Cycle should not be used for delay learning.
+	 *
+	 * <p>
+	 * This is used for Cycles that finished in a controlled way, but whose measured
+	 * duration is not representative for future delay calculation, e.g. when the
+	 * read phase was aborted early after a soft-fail skip because the remaining
+	 * read-budget was exhausted.
+	 *
+	 * <p>
+	 * In contrast to {@link #timeIsInvalid()}, this does <b>not</b> reset the delay
+	 * to zero. The next {@link WaitTask.Delay} is still calculated from the
+	 * existing learned {@link #possibleDelays}, but the current Cycle does not add a
+	 * new learning sample.
+	 */
+	public synchronized void skipLearningForCurrentCycle() {
+	    this.skipLearningForCurrentCycle = true;
 	}
 
 	/**

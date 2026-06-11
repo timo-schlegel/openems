@@ -10,4 +10,7 @@ public class RctRequest extends RctFrame {
 		super(rctCommand, rctId, rctData);
 	}	
 
+	public RctRequest(byte rctCommand, byte[] rctSlaveAddress, byte[] rctId, byte[] rctData) {
+	    super(rctCommand, rctSlaveAddress, rctId, rctData);
+	}
 }

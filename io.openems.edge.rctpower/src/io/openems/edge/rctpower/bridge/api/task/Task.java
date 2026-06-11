@@ -68,6 +68,10 @@ public sealed interface Task extends ManagedTask permits AbstractTask, ReadTask,
 		/** Successfully executed request(s). */
 		public static final ExecuteState.Ok OK = new ExecuteState.Ok();
 
+		/** Executed request(s) was skipped (e.g. RctInverter did not respond in time). */
+		public static final record Skipped(Exception exception) implements ExecuteState {
+		}
+
 		public static final class NoOp implements ExecuteState {
 			private NoOp() {
 			}

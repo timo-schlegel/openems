@@ -1,7 +1,12 @@
 package io.openems.edge.rctpower.bridge;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
@@ -20,9 +25,13 @@ import io.openems.edge.common.event.EdgeEventConstants;
 import io.openems.edge.rctpower.bridge.api.AbstractRctPowerBridge;
 import io.openems.edge.rctpower.bridge.api.BridgeRctPower;
 import io.openems.edge.rctpower.bridge.api.Config;
+import io.openems.edge.rctpower.bridge.api.RctBatchTransaction;
 import io.openems.edge.rctpower.bridge.api.RctFrame;
+import io.openems.edge.rctpower.bridge.api.RctRequest;
+import io.openems.edge.rctpower.bridge.api.RctResponse;
 import io.openems.edge.rctpower.bridge.api.RctTCPConnection;
 import io.openems.edge.rctpower.bridge.api.RctTransaction;
+import io.openems.edge.rctpower.bridge.api.worker.RctReadWorker;
 
 /**
  * Provides a service for connecting to, querying and writing to a RctPower
@@ -44,12 +53,20 @@ public class BridgeRctPowerImpl extends AbstractRctPowerBridge
 	/** The configured IP address. */
 	private InetAddress ipAddress = null;
 	private int port;
+	private volatile boolean periodicalsDisabledForCurrentConnection = false;
 
 	public BridgeRctPowerImpl() {
 		super(//
 				OpenemsComponent.ChannelId.values(), //
 				BridgeRctPower.ChannelId.values() //
 		);
+		this.readWorker = new RctReadWorker(() -> {
+			try {
+				return this.getRctTCPConnection().getRctTCPTransport();
+			} catch (OpenemsException e) {
+				return null;
+			}
+		});
 	}
 	
 	@Activate
@@ -87,12 +104,14 @@ public class BridgeRctPowerImpl extends AbstractRctPowerBridge
 	
 	@Override
 	public RctTransaction getNewRctTransaction(RctFrame frame) throws OpenemsException {
-		var connection = this.getRctTCPConnection();
-		var transaction = new RctTransaction(connection, frame);
-		transaction.setRetries(AbstractRctPowerBridge.DEFAULT_RETRIES);
-		return transaction;
+		return new RctTransaction(this.getRctTCPConnection(), frame, this.readWorker);
 	}
-	
+
+	@Override
+	public RctBatchTransaction getNewRctBatchTransaction(List<RctRequest> requests) throws OpenemsException {
+		return new RctBatchTransaction(this.getRctTCPConnection(), requests, this.readWorker);
+	}
+
 	private RctTCPConnection _connection = null;
 
 	private synchronized RctTCPConnection getRctTCPConnection() throws OpenemsException {
@@ -103,17 +122,60 @@ public class BridgeRctPowerImpl extends AbstractRctPowerBridge
 			var connection = new RctTCPConnection(this.getIpAddress());
 			connection.setPort(this.port);
 			this._connection = connection;
+
+			// neue Connection -> Setup noch nicht gemacht
+			this.periodicalsDisabledForCurrentConnection = false;
 		}
 		if (!this._connection.isConnected()) {
 			try {
-				this._connection.connect();
+				this._connection.ensureConnected();
 			} catch (Exception e) {
 				throw new OpenemsException(
 						"Connection to [" + this.getIpAddress().getHostAddress() + "] failed: " + e.getMessage());
 			}
 			this._connection.getRctTCPTransport().setTimeout(AbstractRctPowerBridge.DEFAULT_TIMEOUT);
+
+			// reconnect -> Setup neu nötig
+			this.periodicalsDisabledForCurrentConnection = false;
+
+			if (this.disablePeriodicalSendings()) {
+				this.disableRctPeriodicalSendings();
+			}
 		}
 		return this._connection;
+	}
+
+	private static byte[] oid(int value) {
+		return new byte[] {
+			(byte) ((value >> 24) & 0xFF),
+			(byte) ((value >> 16) & 0xFF),
+			(byte) ((value >> 8) & 0xFF),
+			(byte) (value & 0xFF)
+		};
+	}
+
+	private void disableRctPeriodicalSendings() throws OpenemsException {
+		if (this.periodicalsDisabledForCurrentConnection) {
+			return;
+		}
+
+		//this.logInfo(this.log, "Disable RCT periodic sendings (pas.period=0)");
+		//System.out.println("******* Disable RCT periodic sendings (pas.period=0)");
+
+		final byte[] oid = oid(0x9C8FE559);
+
+		byte[] data = new byte[] {
+			0x00, 0x00, 0x00, 0x00
+		};
+
+		RctFrame request = new RctFrame((byte) 0x02, oid, data);
+
+		var tx = this.getNewRctTransaction(request);
+		
+		// !!! DISABLED tx.executeWriteOnly();
+		//tx.executeWriteOnly();
+
+		this.periodicalsDisabledForCurrentConnection = true;
 	}
 
 	@Override
@@ -123,6 +185,11 @@ public class BridgeRctPowerImpl extends AbstractRctPowerBridge
 
 	public void setIpAddress(InetAddress ipAddress) {
 		this.ipAddress = ipAddress;
-	}	
+	}
+	
+	private boolean disablePeriodicalSendings() {
+		//return this.config.disablePeriodicalSendings();
+		return true;
+	}
 
 }

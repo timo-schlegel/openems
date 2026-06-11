@@ -62,7 +62,7 @@ public class AllowedChargeDischargeHandler extends AbstractAllowedChargeDischarg
 		if(parent.getSoc().orElse(0) <= minSocChannel.value().orElse(100))
 			batteryAllowedDischargePower = 0;			
 		
-		// Check Battery Status (block charge/discharge if battery status is not NORMAL, e.g. on battery calibration)
+		// Check Battery Status (block charge/discharge if battery status is not NORMAL)
 		EnumReadChannel bmsBatteryStatus = parent.channel(RctPowerEss.ChannelId.BMS_BATTERY_STATUS);		
 		if(bmsBatteryStatus.getNextValue().get() == null || bmsBatteryStatus.getNextValue().asEnum() != BatteryStatus.NORMAL) {
 			batteryAllowedChargePower = 0;
@@ -88,6 +88,16 @@ public class AllowedChargeDischargeHandler extends AbstractAllowedChargeDischarg
 			
 			// Limit acChargerPower to maxApparentPower
 			if(acAllowedChargePower>maxApparentPower) acAllowedChargePower = maxApparentPower;			
+		}
+		
+		// Use the current active power as limits during battery calibration so that the optimizer can calculate correct setpoints,
+		//   since the setpoint cannot be adjusted during calibration.
+		if(bmsBatteryStatus.getNextValue().get() != null && (
+				bmsBatteryStatus.getNextValue().asEnum() == BatteryStatus.CALIBRATING_CHARGE ||
+				bmsBatteryStatus.getNextValue().asEnum() == BatteryStatus.CALIBRATING_DISCHARGE)) {
+			var activePower = parent.getActivePowerChannel().getNextValue().orElse(0);
+			acAllowedChargePower = activePower * (-1);
+			acAllowedDischargePower = activePower;
 		}
 
 		// Apply AllowedChargePower and AllowedDischargePower
